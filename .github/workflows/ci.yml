@@ -84,10 +84,10 @@ jobs:
           body: "PR automatique générée par la CI depuis `${{ github.ref_name }}`"
           labels: auto-merge
 
-      - name: Enable auto-merge
+      - name: Merge PR
         if: steps.create-pr.outputs.pull-request-number != ''
         run: |
           gh pr merge ${{ steps.create-pr.outputs.pull-request-number }} \
-            --squash --auto --delete-branch
+            --squash --delete-branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
