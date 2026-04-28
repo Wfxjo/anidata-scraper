@@ -1,0 +1,133 @@
+# ============================================
+# AniData Lab — Stack complète
+# mock-site + Airflow + Elasticsearch
+# ============================================
+
+x-airflow-common: &airflow-common
+  image: ghcr.io/wfxjo/anidata-scraper-airflow:latest
+  environment:
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+    - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDQ=
+    - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=false
+    - AIRFLOW__WEBSERVER__SECRET_KEY=anidata-secret
+  volumes:
+    - ./data/raw:/opt/airflow/data/raw
+    - airflow_logs:/opt/airflow/logs
+  networks:
+    - anidata-network
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+
+  # ==========================================
+  # MOCK-SITE (nginx)
+  # ==========================================
+  mock-site:
+    image: nginx:alpine
+    container_name: anidata-mock-site
+    volumes:
+      - ./mock-site/site:/usr/share/nginx/html:ro
+    networks:
+      - anidata-network
+
+  # ==========================================
+  # ELASTICSEARCH
+  # ==========================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    container_name: anidata-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q 'yellow\\|green'"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    networks:
+      - anidata-network
+
+  # ==========================================
+  # POSTGRESQL (backend Airflow)
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: anidata-postgres
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - anidata-network
+
+  # ==========================================
+  # AIRFLOW - Init
+  # ==========================================
+  airflow-init:
+    <<: *airflow-common
+    container_name: anidata-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db init
+        airflow users create \
+          --username admin --password admin \
+          --firstname Admin --lastname AniData \
+          --role Admin --email admin@anidata.lab
+        echo "✅ Airflow initialisé !"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ==========================================
+  # AIRFLOW - Webserver
+  # ==========================================
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: anidata-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ==========================================
+  # AIRFLOW - Scheduler
+  # ==========================================
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: anidata-airflow-scheduler
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  es_data:
+  pg_data:
+  airflow_logs:
+
+networks:
+  anidata-network:
+    driver: bridge
+    name: anidata-network
