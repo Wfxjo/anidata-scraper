@@ -40,3 +40,6 @@ with DAG(
     )
 
     scrape >> trigger_etl
+
+    # test pipeline complet
+    
