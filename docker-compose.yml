@@ -13,6 +13,7 @@ x-airflow-common: &airflow-common
     - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=false
     - AIRFLOW__WEBSERVER__SECRET_KEY=anidata-secret
   volumes:
+    - ./dags:/opt/airflow/dags
     - ./data/raw:/opt/airflow/data/raw
     - airflow_logs:/opt/airflow/logs
   networks:
